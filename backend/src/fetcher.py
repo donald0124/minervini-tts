@@ -5,21 +5,13 @@ import pandas as pd
 import pickle
 import time
 import random
-import requests # <--- 必須引入
 from datetime import datetime
 from . import config
 
 class StockFetcher:
     def __init__(self):
         self.cache_path = os.path.join(config.CACHE_DIR, f"market_data_{datetime.now().strftime('%Y-%m-%d')}.pkl")
-        
-        # === 建立偽裝瀏覽器的 Session ===
-        self.session = requests.Session()
-        self.session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9,zh-TW;q=0.8,zh;q=0.7",
-        })
+        # 移除 requests.Session 的建立
 
     def get_universe(self):
         """
@@ -47,7 +39,7 @@ class StockFetcher:
 
     def fetch_batch(self, tickers):
         """
-        分批下載並處理快取 (偽裝瀏覽器 + 強制冷卻版)
+        分批下載並處理快取 (yfinance 原生抗封鎖版)
         """
         # 1. 檢查快取
         if os.path.exists(self.cache_path):
@@ -59,13 +51,14 @@ class StockFetcher:
                 print(f"快取讀取失敗，將重新下載: {e}")
 
         # 2. 無快取，執行分批下載
-        print(f"開始下載 {len(tickers)} 檔股票數據 (Zeabur 匿蹤模式)...")
+        print(f"開始下載 {len(tickers)} 檔股票數據 (Zeabur 慢速模式)...")
         
         # === 參數設定 ===
-        BATCH_SIZE = 8       # 極小批次 (8檔)
-        NORMAL_DELAY_MIN = 8 # 正常等待下限 (秒)
-        NORMAL_DELAY_MAX = 15 # 正常等待上限 (秒)
-        ERROR_COOLDOWN = 180 # 遇到封鎖時，強制冷卻 3 分鐘 (秒)
+        # 雖然不能用自訂 Session，但我們仍需保持極慢速來保護雲端 IP
+        BATCH_SIZE = 2000      # 10 檔一批
+        NORMAL_DELAY_MIN = 10
+        NORMAL_DELAY_MAX = 20
+        ERROR_COOLDOWN = 180 # 遇到封鎖冷卻 3 分鐘
         MAX_RETRIES = 3      
         
         all_dfs = []
@@ -79,14 +72,13 @@ class StockFetcher:
             success = False
             for attempt in range(MAX_RETRIES):
                 try:
-                    # 使用 session 參數傳入偽裝的 headers
+                    # 移除 session 參數，讓 yfinance 自己處理
                     data = yf.download(
                         chunk, 
                         period="2y", 
-                        threads=False, # 關閉多執行緒，減少並發請求被抓的機率
+                        threads=False, # 建議關閉多執行緒以降低併發
                         group_by='ticker',
-                        auto_adjust=False,
-                        session=self.session # <--- 關鍵：使用偽裝 Session
+                        auto_adjust=False
                     )
                     
                     if not data.empty:
@@ -107,12 +99,10 @@ class StockFetcher:
                     error_msg = str(e)
                     print(f"   ❌ 失敗: {error_msg}")
                     
-                    # 如果是 Rate Limit 錯誤，啟動長時冷卻
-                    if "Too Many Requests" in error_msg or "Rate limited" in error_msg:
+                    if "Too Many Requests" in error_msg or "Rate limited" in error_msg or "429" in error_msg:
                         print(f"   ⛔️ 被 Yahoo 封鎖偵測！強制冷卻 {ERROR_COOLDOWN} 秒...")
                         time.sleep(ERROR_COOLDOWN)
                     else:
-                        # 普通錯誤，休息一下就好
                         time.sleep(30)
             
             if not success:
