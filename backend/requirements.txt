@@ -4,3 +4,5 @@ yfinance
 twstock
 tqdm
 lxml
+fastapi
+uvicorn

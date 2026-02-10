@@ -9,7 +9,10 @@ import { Loader2, AlertCircle } from 'lucide-react';
 // 在 Codespaces 中，如果前後端分開跑，可能需要指向 '/backend/output/results.json' 
 // 或者我們假設您已經把 results.json 放到 frontend/public 了
 // const DATA_URL = 'backend/output/results.json'; 
-const DATA_URL = `${import.meta.env.BASE_URL}results.json`;
+// const DATA_URL = `${import.meta.env.BASE_URL}results.json`;
+
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const DATA_URL = `${API_BASE}/data/results.json`;
 
 function App() {
     const [data, setData] = useState<APIResponse | null>(null);
