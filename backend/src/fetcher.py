@@ -3,6 +3,7 @@ import twstock
 import yfinance as yf
 import pandas as pd
 import pickle
+import time  # <--- 新增 time 模組
 from datetime import datetime
 from . import config
 
@@ -12,21 +13,16 @@ class StockFetcher:
 
     def get_universe(self):
         """
-        取得台股上市櫃普通股清單 (FR-01)
-        回傳: Dictionary { '2330.TW': '台積電', ... }
+        取得台股上市櫃普通股清單
         """
         print("正在獲取股票代碼與名稱清單...")
-        # twstock.codes 是一個字典，包含所有上市櫃股票資訊
-        # 我們只取 "股票" 類別，並排除 ETF, DR 等
         tickers_map = {}
         
         for code, info in twstock.codes.items():
             if info.type == "股票":
-                # 簡單過濾：排除 00開頭(ETF/債券等), 91開頭(DR)
                 if code.startswith("00") or code.startswith("91"):
                     continue
                 
-                # 區分上市 (.TW) 與上櫃 (.TWO)
                 full_code = ""
                 if info.market == "上市":
                     full_code = f"{code}.TW"
@@ -41,8 +37,7 @@ class StockFetcher:
 
     def fetch_batch(self, tickers):
         """
-        批量下載並處理快取 (FR-02, NFR-01)
-        tickers: List of strings
+        分批下載並處理快取 (避免 Rate Limit)
         """
         # 1. 檢查快取
         if os.path.exists(self.cache_path):
@@ -53,20 +48,65 @@ class StockFetcher:
             except Exception as e:
                 print(f"快取讀取失敗，將重新下載: {e}")
 
-        # 2. 無快取，執行下載
-        print(f"開始下載 {len(tickers)} 檔股票數據 (這可能需要幾分鐘)...")
-        # yfinance download 會回傳 MultiIndex DataFrame
-        data = yf.download(
-            tickers, 
-            period="2y", # 確保有足夠數據計算 52週高低
-            threads=True, 
-            group_by='ticker',
-            auto_adjust=False 
-        )
+        # 2. 無快取，執行分批下載
+        print(f"開始下載 {len(tickers)} 檔股票數據 (分批執行中)...")
         
-        # 3. 儲存快取
-        print("下載完成，正在寫入快取...")
-        with open(self.cache_path, "wb") as f:
-            pickle.dump(data, f)
+        # === 設定分批參數 ===
+        BATCH_SIZE = 50      # 每批 50 檔 (降低被 Ban 機率)
+        DELAY_SECONDS = 2    # 每批間隔 2 秒
+        MAX_RETRIES = 3      # 失敗重試次數
+        
+        all_dfs = []
+        
+        # 將 tickers 切割成多個 chunk
+        chunks = [tickers[i:i + BATCH_SIZE] for i in range(0, len(tickers), BATCH_SIZE)]
+        
+        for i, chunk in enumerate(chunks):
+            print(f"下載進度: 第 {i+1}/{len(chunks)} 批 ({len(chunk)} 檔)...")
             
-        return data
+            success = False
+            for attempt in range(MAX_RETRIES):
+                try:
+                    # 下載該批次
+                    data = yf.download(
+                        chunk, 
+                        period="2y", 
+                        threads=True, 
+                        group_by='ticker',
+                        auto_adjust=False 
+                    )
+                    
+                    if not data.empty:
+                        all_dfs.append(data)
+                    success = True
+                    break # 成功則跳出重試迴圈
+                    
+                except Exception as e:
+                    print(f"⚠️ 第 {i+1} 批下載失敗 (嘗試 {attempt+1}/{MAX_RETRIES}): {e}")
+                    time.sleep(DELAY_SECONDS * (attempt + 1)) # 失敗時睡久一點
+            
+            if not success:
+                print(f"❌ 第 {i+1} 批完全失敗，跳過。")
+
+            # 批次間的間隔 (重要！)
+            time.sleep(DELAY_SECONDS)
+        
+        if not all_dfs:
+            print("❌ 所有批次下載皆失敗。")
+            return None
+
+        # 3. 合併數據與儲存
+        print("下載完成，正在合併數據...")
+        try:
+            # axis=1 用於合併 columns (不同股票)
+            final_data = pd.concat(all_dfs, axis=1)
+            
+            print("正在寫入快取...")
+            with open(self.cache_path, "wb") as f:
+                pickle.dump(final_data, f)
+                
+            return final_data
+            
+        except Exception as e:
+            print(f"數據合併失敗: {e}")
+            return None
