@@ -3,7 +3,8 @@ import twstock
 import yfinance as yf
 import pandas as pd
 import pickle
-import time  # <--- 新增 time 模組
+import time
+import random  # 引入 random 以產生隨機延遲
 from datetime import datetime
 from . import config
 
@@ -37,7 +38,7 @@ class StockFetcher:
 
     def fetch_batch(self, tickers):
         """
-        分批下載並處理快取 (避免 Rate Limit)
+        分批下載並處理快取 (針對雲端環境優化版)
         """
         # 1. 檢查快取
         if os.path.exists(self.cache_path):
@@ -49,56 +50,62 @@ class StockFetcher:
                 print(f"快取讀取失敗，將重新下載: {e}")
 
         # 2. 無快取，執行分批下載
-        print(f"開始下載 {len(tickers)} 檔股票數據 (分批執行中)...")
+        print(f"開始下載 {len(tickers)} 檔股票數據 (雲端慢速模式)...")
         
-        # === 設定分批參數 ===
-        BATCH_SIZE = 50      # 每批 50 檔 (降低被 Ban 機率)
-        DELAY_SECONDS = 2    # 每批間隔 2 秒
-        MAX_RETRIES = 3      # 失敗重試次數
+        # === 雲端環境極限參數 ===
+        BATCH_SIZE = 20       # 每批只抓 15 檔 (非常保守)
+        MIN_DELAY = 12        # 最小等待 12 秒
+        MAX_DELAY = 25        # 最大等待 25 秒
+        MAX_RETRIES = 5       # 增加重試次數
         
         all_dfs = []
-        
-        # 將 tickers 切割成多個 chunk
         chunks = [tickers[i:i + BATCH_SIZE] for i in range(0, len(tickers), BATCH_SIZE)]
+        total_batches = len(chunks)
         
         for i, chunk in enumerate(chunks):
-            print(f"下載進度: 第 {i+1}/{len(chunks)} 批 ({len(chunk)} 檔)...")
+            current_batch = i + 1
+            print(f"[{current_batch}/{total_batches}] 正在下載 {len(chunk)} 檔...")
             
             success = False
             for attempt in range(MAX_RETRIES):
                 try:
-                    # 下載該批次
                     data = yf.download(
                         chunk, 
                         period="2y", 
-                        threads=True, 
+                        threads=True, # 保持 True，單一批次內還是可以並行
                         group_by='ticker',
                         auto_adjust=False 
                     )
                     
                     if not data.empty:
                         all_dfs.append(data)
-                    success = True
-                    break # 成功則跳出重試迴圈
-                    
+                        success = True
+                        
+                        # 隨機延遲 (讓行為看起來不像機器人)
+                        sleep_time = random.uniform(MIN_DELAY, MAX_DELAY)
+                        print(f"   ✅ 成功。休息 {sleep_time:.1f} 秒...")
+                        time.sleep(sleep_time)
+                        break 
+                    else:
+                        # 雖然沒有 Exception 但沒資料，可能也是被擋，稍作休息
+                        print(f"   ⚠️ 無數據。重試中...")
+                        time.sleep(10)
+                        
                 except Exception as e:
-                    print(f"⚠️ 第 {i+1} 批下載失敗 (嘗試 {attempt+1}/{MAX_RETRIES}): {e}")
-                    time.sleep(DELAY_SECONDS * (attempt + 1)) # 失敗時睡久一點
+                    wait_time = (attempt + 2) * 10 # 失敗時等待 20, 30, 40... 秒
+                    print(f"   ❌ 失敗 ({e})。等待 {wait_time} 秒後重試 ({attempt+1}/{MAX_RETRIES})...")
+                    time.sleep(wait_time)
             
             if not success:
-                print(f"❌ 第 {i+1} 批完全失敗，跳過。")
+                print(f"   ❌ 第 {current_batch} 批完全失敗，跳過。")
 
-            # 批次間的間隔 (重要！)
-            time.sleep(DELAY_SECONDS)
-        
         if not all_dfs:
-            print("❌ 所有批次下載皆失敗。")
+            print("❌ 所有批次下載皆失敗，無法產生數據。")
             return None
 
         # 3. 合併數據與儲存
         print("下載完成，正在合併數據...")
         try:
-            # axis=1 用於合併 columns (不同股票)
             final_data = pd.concat(all_dfs, axis=1)
             
             print("正在寫入快取...")
