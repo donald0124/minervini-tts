@@ -12,7 +12,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # === 篩選門檻設定 (參照 PRD FR-04, FR-06) ===
 RS_THRESHOLD = 70               # 相對強度需大於 70 (前 30%)
-MIN_AVG_VOLUME_SHARES = 300000  # 最小 20日均量 (300張)
+MIN_AVG_VOLUME_SHARES = 500000  # 最小 20日均量 (500張)
 IPO_MIN_DAYS = 250              # 最小上市天數 (排除新股)
 
 # === 技術型態參數 (參照 PRD FR-04) ===

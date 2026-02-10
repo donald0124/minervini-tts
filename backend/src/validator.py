@@ -4,11 +4,13 @@ import json
 import csv
 import os
 import numpy as np # 確保引入 numpy 以處理類型判斷
+from datetime import datetime
 
 class MinerviniValidator:
-    def validate(self, ticker, df):
+    def validate(self, ticker, name, df):
         """
         執行 8+1 條件判定 (FR-04, FR-06)
+        新增 name 參數以支援前端顯示
         """
         # 取最新一筆資料
         row = df.iloc[-1]
@@ -40,7 +42,6 @@ class MinerviniValidator:
         results['c5_momentum'] = bool(price > row['SMA_50'])
         
         # C6: 高於低點 30%
-        # 處理 Low_52W 可能為 NaN 的情況
         if pd.isna(row['Low_52W']):
             results['c6_support'] = False
         else:
@@ -55,13 +56,12 @@ class MinerviniValidator:
             results['c7_resistance'] = bool(price >= c7_threshold)
         
         # C8: RS > 70
-        # 處理 RS_Rating 可能為 NaN 的情況
         rs_val = row['RS_Rating']
         if pd.isna(rs_val):
             rs_val = 0
         results['c8_rs_strength'] = bool(rs_val >= config.RS_THRESHOLD)
         
-        # 計算總分 (True 會被視為 1)
+        # 計算總分
         technical_score = sum(results.values())
         
         # 判定狀態
@@ -80,12 +80,10 @@ class MinerviniValidator:
                     break
         
         # === 數值防呆處理 (針對 JSON 輸出) ===
-        # 處理成交量 NaN
         vol_avg = row['Vol_SMA_20']
         if pd.isna(vol_avg):
             vol_avg = 0
             
-        # 處理 52週距離顯示 NaN
         dist_low_str = "N/A"
         if not pd.isna(row['Low_52W']) and row['Low_52W'] != 0:
             dist_low_str = f"{((price - row['Low_52W'])/row['Low_52W'])*100:.1f}%"
@@ -96,13 +94,14 @@ class MinerviniValidator:
 
         return {
             "ticker": ticker,
+            "name": name,  # 新增股票名稱
             "price": round(price, 2),
-            "rs_rating": int(rs_val),  # 強制轉為原生 int
-            "vol_avg": int(vol_avg),   # 強制轉為原生 int
+            "rs_rating": int(rs_val),
+            "vol_avg": int(vol_avg),
             "status": status,
             "fail_reason": fail_reason,
             "match_count": f"{technical_score}/8",
-            "details": results,        # 這裡面的 value 已經都被轉為原生 bool 了
+            "details": results,
             "dist_low_pct": dist_low_str,
             "dist_high_pct": dist_high_str
         }
@@ -111,24 +110,39 @@ class ReportGenerator:
     def generate(self, validation_results):
         """
         生成 CSV 與 JSON (FR-05)
+        JSON 結構變更為包含 metadata
         """
-        # 1. JSON
+        # 1. 準備 Metadata
+        output_data = {
+            "metadata": {
+                "timestamp": datetime.now().isoformat(),
+                "config": {
+                    "rs_threshold": config.RS_THRESHOLD,
+                    "min_volume": config.MIN_AVG_VOLUME_SHARES,
+                    "dist_low_pct": config.DIST_FROM_LOW_THRESHOLD,
+                    "dist_high_pct": config.DIST_FROM_HIGH_THRESHOLD,
+                    "ma_slope_lookback": config.MA_SLOPE_LOOKBACK
+                }
+            },
+            "data": validation_results
+        }
+
+        # 2. JSON 輸出
         json_path = os.path.join(config.OUTPUT_DIR, "results.json")
         try:
             with open(json_path, "w", encoding="utf-8") as f:
-                json.dump(validation_results, f, ensure_ascii=False, indent=2)
+                json.dump(output_data, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"JSON 生成失敗: {e}")
-            # 如果還是失敗，嘗試用 default=str 強制轉換
             with open(json_path, "w", encoding="utf-8") as f:
-                 json.dump(validation_results, f, ensure_ascii=False, indent=2, default=str)
+                 json.dump(output_data, f, ensure_ascii=False, indent=2, default=str)
             
-        # 2. CSV
-        # 扁平化資料
+        # 3. CSV 輸出 (保持扁平化，增加 Name 欄位)
         csv_data = []
         for res in validation_results:
             row = {
                 "Ticker": res['ticker'],
+                "Name": res['name'],  # 新增 Name 欄位
                 "Price": res['price'],
                 "Status": res['status'],
                 "Reason": res['fail_reason'],
@@ -146,7 +160,7 @@ class ReportGenerator:
         if csv_data:
             df = pd.DataFrame(csv_data)
             csv_path = os.path.join(config.OUTPUT_DIR, "results.csv")
-            df.to_csv(csv_path, index=False, encoding="utf-8-sig") # sig for Excel zh-TW
+            df.to_csv(csv_path, index=False, encoding="utf-8-sig")
             print(f"報告已生成:\n - {json_path}\n - {csv_path}")
             
             # 顯示簡單統計
