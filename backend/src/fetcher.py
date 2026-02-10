@@ -5,13 +5,12 @@ import pandas as pd
 import pickle
 import time
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 from . import config
 
 class StockFetcher:
     def __init__(self):
         self.cache_path = os.path.join(config.CACHE_DIR, f"market_data_{datetime.now().strftime('%Y-%m-%d')}.pkl")
-        # 移除 requests.Session 的建立
 
     def get_universe(self):
         """
@@ -39,7 +38,7 @@ class StockFetcher:
 
     def fetch_batch(self, tickers):
         """
-        分批下載並處理快取 (yfinance 原生抗封鎖版)
+        分批下載 (包含資料長度檢查，防止 Yahoo 給截斷的數據)
         """
         # 1. 檢查快取
         if os.path.exists(self.cache_path):
@@ -51,15 +50,18 @@ class StockFetcher:
                 print(f"快取讀取失敗，將重新下載: {e}")
 
         # 2. 無快取，執行分批下載
-        print(f"開始下載 {len(tickers)} 檔股票數據 (Zeabur 慢速模式)...")
+        print(f"開始下載 {len(tickers)} 檔股票數據 (完整模式)...")
         
         # === 參數設定 ===
-        # 雖然不能用自訂 Session，但我們仍需保持極慢速來保護雲端 IP
-        BATCH_SIZE = 2000      # 10 檔一批
-        NORMAL_DELAY_MIN = 10
-        NORMAL_DELAY_MAX = 20
-        ERROR_COOLDOWN = 180 # 遇到封鎖冷卻 3 分鐘
-        MAX_RETRIES = 3      
+        BATCH_SIZE = 300       # 保持小批次
+        NORMAL_DELAY_MIN = 5  # 正常等待
+        NORMAL_DELAY_MAX = 12
+        ERROR_COOLDOWN = 60   # 遇到長度不足或封鎖，休息 1 分鐘
+        MAX_RETRIES = 3
+        MIN_HISTORY_LEN = 250 # 關鍵：至少要有 250 天的資料才算成功
+        
+        # 設定起始日期 (強制抓 3 年)
+        start_date = (datetime.now() - timedelta(days=1000)).strftime('%Y-%m-%d')
         
         all_dfs = []
         chunks = [tickers[i:i + BATCH_SIZE] for i in range(0, len(tickers), BATCH_SIZE)]
@@ -67,53 +69,62 @@ class StockFetcher:
         
         for i, chunk in enumerate(chunks):
             current_batch = i + 1
-            print(f"[{current_batch}/{total_batches}] 正在下載 {len(chunk)} 檔...")
+            print(f"[{current_batch}/{total_batches}] 正在下載 {len(chunk)} 檔...", end="", flush=True)
             
             success = False
             for attempt in range(MAX_RETRIES):
                 try:
-                    # 移除 session 參數，讓 yfinance 自己處理
                     data = yf.download(
                         chunk, 
-                        period="2y", 
-                        threads=False, # 建議關閉多執行緒以降低併發
+                        start=start_date, # 強制指定起始日
+                        threads=False,    # 關閉多線程以穩定數據
                         group_by='ticker',
-                        auto_adjust=False
+                        auto_adjust=False,
+                        progress=False    # 關閉 yfinance 內建進度條以免洗版
                     )
                     
                     if not data.empty:
+                        # === 關鍵檢查：資料長度夠嗎？ ===
+                        # 取出這批資料的列數 (天數)
+                        data_len = len(data)
+                        
+                        if data_len < MIN_HISTORY_LEN:
+                            # 資料太短！判定為 Yahoo 截斷數據 (Soft Ban)
+                            print(f"\n   ⚠️ 警告：資料長度不足 ({data_len} 天 < {MIN_HISTORY_LEN} 天)。判定為流量限制截斷。")
+                            raise ValueError("Data truncated by Yahoo (Soft Ban)")
+                        
+                        # 成功
                         all_dfs.append(data)
                         success = True
                         
                         # 隨機延遲
                         sleep_time = random.uniform(NORMAL_DELAY_MIN, NORMAL_DELAY_MAX)
-                        print(f"   ✅ 成功。休息 {sleep_time:.1f} 秒...")
+                        print(f" ✅ 成功 ({data_len} 天)。休息 {sleep_time:.1f}s...")
                         time.sleep(sleep_time)
                         break 
                     else:
-                        print(f"   ⚠️ 無數據 (Attempt {attempt+1})。")
-                        if attempt < MAX_RETRIES - 1:
-                            time.sleep(10)
+                        print(f"\n   ⚠️ 無數據 (Attempt {attempt+1})。")
+                        time.sleep(10)
                         
                 except Exception as e:
                     error_msg = str(e)
-                    print(f"   ❌ 失敗: {error_msg}")
-                    
-                    if "Too Many Requests" in error_msg or "Rate limited" in error_msg or "429" in error_msg:
-                        print(f"   ⛔️ 被 Yahoo 封鎖偵測！強制冷卻 {ERROR_COOLDOWN} 秒...")
+                    # 判斷是否需要長時冷卻
+                    if "truncated" in error_msg or "Too Many Requests" in error_msg or "429" in error_msg:
+                        print(f"\n   ⛔️ 被 Yahoo 限制流量 (Attempt {attempt+1})！冷卻 {ERROR_COOLDOWN} 秒...")
                         time.sleep(ERROR_COOLDOWN)
                     else:
-                        time.sleep(30)
+                        print(f"\n   ❌ 失敗: {error_msg}。重試中...")
+                        time.sleep(15)
             
             if not success:
-                print(f"   ❌ 第 {current_batch} 批完全失敗，跳過。")
+                print(f"\n   ❌ 第 {current_batch} 批完全失敗 (已達重試上限)，跳過。")
 
         if not all_dfs:
             print("❌ 所有批次下載皆失敗，無法產生數據。")
             return None
 
         # 3. 合併數據與儲存
-        print("下載完成，正在合併數據...")
+        print("\n下載完成，正在合併數據...")
         try:
             final_data = pd.concat(all_dfs, axis=1)
             

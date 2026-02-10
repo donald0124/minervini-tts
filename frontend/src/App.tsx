@@ -13,6 +13,7 @@ import { Loader2, AlertCircle } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const DATA_URL = `${API_BASE}/data/results.json`;
+// const DATA_URL = `${import.meta.env.BASE_URL}results.json`;
 
 function App() {
     const [data, setData] = useState<APIResponse | null>(null);

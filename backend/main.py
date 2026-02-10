@@ -25,7 +25,7 @@ def main():
     
     # 測試模式：為了省時間，您可以先只跑前 200 檔測試
     # 如果要跑全市場，請註解掉下面這行
-    # ticker_list = ticker_list[:100]
+    # ticker_list = ticker_list[:500]
     
     # 3. 獲取數據 (Fetch)
     raw_data = fetcher.fetch_batch(ticker_list)
