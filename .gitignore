@@ -1,0 +1,75 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Test / coverage
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+
+# Type check / caches
+.mypy_cache/
+.cache/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints
+
+# Logs
+*.log
+
+# Env files / secrets
+.env
+.env.*
+*.env
+secrets.*
+*.key
+*.pem
+
+# C extensions / shared objects
+*.so
+
+# Node (frontend)
+node_modules/
+frontend/node_modules/
+
+# Backend-specific outputs and caches
+backend/cache/
+backend/output/
+backend/results.csv
+backend/results.json
+
+# Misc build artifacts
+*.pyc
+*.pyo
+*.pyd
+*.egg
+*.tar.gz
+*.zip
