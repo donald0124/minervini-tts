@@ -11,6 +11,16 @@ export interface Metadata {
     config: Config;
 }
 
+// 新增 Indicators 介面
+export interface Indicators {
+    SMA_50: number;
+    SMA_150: number;
+    SMA_200: number;
+    SMA_200_Prev: number;
+    High_52W: number;
+    Low_52W: number;
+}
+
 export interface StockData {
     ticker: string;
     name: string;
@@ -23,9 +33,11 @@ export interface StockData {
     details: Record<string, boolean>;
     dist_low_pct: string;
     dist_high_pct: string;
+    // 新增此欄位
+    indicators: Indicators;
 }
 
-export interface APIResponse {
+export type APIResponse = {
     metadata: Metadata;
     data: StockData[];
-}
+};

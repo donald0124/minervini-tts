@@ -1,11 +1,9 @@
 export function formatVolume(val: number): string {
-    if (val >= 1000000) {
-        return (val / 1000000).toFixed(1) + 'M';
-    }
-    if (val >= 1000) {
-        return (val / 1000).toFixed(1) + 'K';
-    }
-    return val.toString();
+    // 將股數轉為張數 (1張 = 1000股)
+    const lots = Math.round(val / 1000);
+    
+    // 格式化千分位
+    return new Intl.NumberFormat('en-US').format(lots);
 }
 
 export function formatPrice(val: number): string {
