@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI):
     scheduler = BackgroundScheduler()
     # 設定每天下午 15:00 (台股收盤後) 自動執行
     # timezone 請根據 Zeabur 伺服器設定，通常設定 'Asia/Taipei'
-    scheduler.add_job(run_screener_task, 'cron', hour=15, minute=0, timezone='Asia/Taipei')
+    scheduler.add_job(run_screener_task, 'cron', hour=20, minute=0, timezone='Asia/Taipei')
     scheduler.start()
     print("📅 排程器已啟動：每天 15:00 自動更新")
 

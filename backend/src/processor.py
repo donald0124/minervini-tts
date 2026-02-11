@@ -119,7 +119,7 @@ class DataProcessor:
                         print("   ❌ [嚴重] SMA_200 計算結果為 NaN！(可能歷史資料長度剛好卡邊緣)")
                 
                 # 收集有效的 ROC 用於後續排名
-                current_roc = df['ROC_1Y'].iloc[-1]
+                current_roc = df['Weighted_ROC'].iloc[-1]
                 if not pd.isna(current_roc):
                     valid_rocs.append(current_roc)
                 
