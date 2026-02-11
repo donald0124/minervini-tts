@@ -53,9 +53,9 @@ class StockFetcher:
         print(f"開始下載 {len(tickers)} 檔股票數據 (完整模式)...")
         
         # === 參數設定 ===
-        BATCH_SIZE = 300       # 保持小批次
-        NORMAL_DELAY_MIN = 5  # 正常等待
-        NORMAL_DELAY_MAX = 12
+        BATCH_SIZE = 500       # 保持小批次
+        NORMAL_DELAY_MIN = 0  # 正常等待
+        NORMAL_DELAY_MAX = 2
         ERROR_COOLDOWN = 60   # 遇到長度不足或封鎖，休息 1 分鐘
         MAX_RETRIES = 3
         MIN_HISTORY_LEN = 250 # 關鍵：至少要有 250 天的資料才算成功
